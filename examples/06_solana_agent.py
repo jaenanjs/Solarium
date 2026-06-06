@@ -1,37 +1,49 @@
-"""Example 6 — Solana agent: an AI treasurer that manages a devnet wallet.
+"""Example 6 — Solana agent: an AI treasury manager on devnet.
 
-The agent can check balances, request airdrops, send SOL, and look up
-transactions — all autonomously using its on-chain tools.
+The agent controls its own Solana wallet and can autonomously:
+  - Check SOL and SPL token balances
+  - Request devnet airdrops
+  - Send SOL transactions
+  - Look up transaction history
 
-Requires: pip install solarium[solana]
+Run:
+    export ANTHROPIC_API_KEY=sk-ant-...
+    python examples/06_solana_agent.py
 """
 
 import solarium
-from solarium.solana_tools import SolanaWallet
 
-# Generate a fresh devnet wallet for this agent
-wallet = SolanaWallet.generate(rpc_url=SolanaWallet.DEVNET)
+# Every agent gets its own Solana wallet
+wallet = solarium.SolanaWallet.generate(rpc_url=solarium.SolanaWallet.DEVNET)
 print(f"Agent wallet: {wallet.pubkey}\n")
 
 agent = solarium.Agent(
-    name="treasurer",
+    name="treasury",
     role="Solana treasury manager",
     system=(
-        "You are a Solana treasury agent. You manage a devnet wallet. "
-        "When asked to perform on-chain actions, use your tools to do so and "
-        "report the results clearly. Always confirm transaction signatures."
+        "You are a Solana treasury agent operating on devnet. "
+        "You manage a wallet and can perform on-chain actions using your tools. "
+        "Always confirm transaction signatures and report results clearly."
     ),
     tools=wallet.make_tools(),
 )
 
 if __name__ == "__main__":
-    # 1. Check initial balance
+    # Check the starting balance
+    print("=== Balance check ===")
     print(agent.run("What is my current SOL balance?"))
     print()
 
-    # 2. Request an airdrop
-    print(agent.run("Request an airdrop of 1 SOL so I can test with it."))
+    # Fund the wallet via airdrop
+    print("=== Airdrop ===")
+    print(agent.run("Request an airdrop of 2 SOL so I can run tests."))
     print()
 
-    # 3. Check balance again
-    print(agent.run("Check my balance again and confirm the airdrop landed."))
+    # Confirm the airdrop landed
+    print("=== Confirm ===")
+    print(agent.run("Check my balance again and confirm the airdrop arrived."))
+    print()
+
+    # List any SPL tokens
+    print("=== Token accounts ===")
+    print(agent.run("Do I hold any SPL tokens?"))

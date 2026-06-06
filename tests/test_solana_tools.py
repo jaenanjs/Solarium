@@ -43,10 +43,11 @@ def test_repr_shows_network():
 def test_make_tools_returns_registry():
     wallet = SolanaWallet.generate()
     registry = wallet.make_tools()
-    assert len(registry) == 6
+    assert len(registry) == 8
     expected = {
         "get_sol_balance", "send_sol", "get_transaction",
         "get_account_info", "get_wallet_address", "request_airdrop",
+        "get_token_accounts", "get_spl_balance",
     }
     assert {s["name"] for s in registry.specs()} == expected
 
@@ -84,6 +85,33 @@ def test_request_airdrop_calls_rpc():
     registry = wallet.make_tools()
     result = registry.call("request_airdrop", {"amount_sol": 1.0})
     assert "AirdropSig123" in result
+
+
+def test_get_token_accounts_tool():
+    wallet = SolanaWallet.generate()
+    wallet._get_token_accounts = MagicMock(return_value=[
+        {"address": "TokenAccAddr", "mint": "MintAddr", "owner": wallet.pubkey,
+         "amount": "100.0", "decimals": 6},
+    ])
+    registry = wallet.make_tools()
+    result = registry.call("get_token_accounts", {"address": ""})
+    import json
+    parsed = json.loads(result)
+    assert parsed[0]["mint"] == "MintAddr"
+    assert parsed[0]["amount"] == "100.0"
+
+
+def test_get_spl_balance_tool():
+    wallet = SolanaWallet.generate()
+    wallet._get_spl_balance = MagicMock(return_value={
+        "mint": "USDCMint", "owner": wallet.pubkey, "amount": "50.0", "decimals": 6,
+    })
+    registry = wallet.make_tools()
+    result = registry.call("get_spl_balance", {"mint": "USDCMint", "address": ""})
+    import json
+    parsed = json.loads(result)
+    assert parsed["amount"] == "50.0"
+    assert parsed["mint"] == "USDCMint"
 
 
 def test_get_transaction_tool_formats_json():

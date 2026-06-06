@@ -1,27 +1,26 @@
-"""Solana integration for Solarium agents.
+"""Solana integration — wallets and on-chain tools for Solarium agents.
 
-Gives agents a Solana wallet and a set of on-chain tools:
-  - check SOL and SPL token balances
-  - send SOL
-  - look up transactions
-  - request devnet airdrops
-  - read arbitrary account data
+Core capabilities:
+  - SOL balance checks and transfers
+  - SPL token balance checks and transfers
+  - Associated token account discovery
+  - Transaction lookup and status
+  - Devnet airdrops for testing
+  - Arbitrary account data inspection
 
 Usage::
 
-    from solarium.solana_tools import SolanaWallet
+    from solarium import SolanaWallet
 
-    wallet = SolanaWallet.generate()            # fresh keypair
+    wallet = SolanaWallet.generate()            # fresh keypair on devnet
     wallet = SolanaWallet.from_private_key(b64) # load existing key
     wallet = SolanaWallet(keypair, rpc_url)     # BYO keypair
 
     agent = solarium.Agent(
-        name="treasurer",
-        role="Solana treasury manager",
+        name="trader",
+        role="Solana DeFi agent",
         tools=wallet.make_tools(),
     )
-
-Requires: pip install solarium[solana]
 """
 
 from __future__ import annotations
@@ -33,17 +32,8 @@ from typing import Any
 from solarium.tools import ToolRegistry, tool
 
 _LAMPORTS_PER_SOL = 1_000_000_000
-
-
-def _require_solana() -> None:
-    try:
-        import solana  # noqa: F401
-        import solders  # noqa: F401
-    except ImportError as exc:
-        raise ImportError(
-            "Solana support requires extra dependencies. "
-            "Install with: pip install solarium[solana]"
-        ) from exc
+_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+_ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bj8"
 
 
 class SolanaWallet:
@@ -52,7 +42,6 @@ class SolanaWallet:
     Args:
         keypair: A ``solders.keypair.Keypair`` instance.
         rpc_url: Solana RPC endpoint. Defaults to devnet.
-                 Use ``https://api.mainnet-beta.solana.com`` for mainnet.
     """
 
     DEVNET = "https://api.devnet.solana.com"
@@ -60,7 +49,6 @@ class SolanaWallet:
     TESTNET = "https://api.testnet.solana.com"
 
     def __init__(self, keypair: Any, rpc_url: str = DEVNET) -> None:
-        _require_solana()
         self._keypair = keypair
         self._rpc_url = rpc_url
 
@@ -74,14 +62,12 @@ class SolanaWallet:
     @classmethod
     def generate(cls, rpc_url: str = DEVNET) -> SolanaWallet:
         """Create a brand-new random keypair."""
-        _require_solana()
         from solders.keypair import Keypair
         return cls(Keypair(), rpc_url)
 
     @classmethod
     def from_private_key(cls, private_key_b64: str, rpc_url: str = DEVNET) -> SolanaWallet:
         """Load a wallet from a base64-encoded 64-byte private key."""
-        _require_solana()
         from solders.keypair import Keypair
         raw = base64.b64decode(private_key_b64)
         return cls(Keypair.from_bytes(raw), rpc_url)
@@ -89,7 +75,6 @@ class SolanaWallet:
     @classmethod
     def from_secret_key_bytes(cls, secret: bytes, rpc_url: str = DEVNET) -> SolanaWallet:
         """Load a wallet from raw secret key bytes."""
-        _require_solana()
         from solders.keypair import Keypair
         return cls(Keypair.from_bytes(secret), rpc_url)
 
@@ -111,7 +96,7 @@ class SolanaWallet:
         return self._rpc_url
 
     # ------------------------------------------------------------------
-    # Raw on-chain operations (called by tools)
+    # SOL operations
     # ------------------------------------------------------------------
 
     def _get_balance_lamports(self, address: str | None = None) -> int:
@@ -147,6 +132,47 @@ class SolanaWallet:
         lamports = int(amount_sol * _LAMPORTS_PER_SOL)
         result = self._client.request_airdrop(self._keypair.pubkey(), lamports)
         return str(result.value)
+
+    # ------------------------------------------------------------------
+    # SPL token operations
+    # ------------------------------------------------------------------
+
+    def _get_token_accounts(self, owner: str | None = None) -> list[dict[str, Any]]:
+        """Return all SPL token accounts owned by an address."""
+        from solders.pubkey import Pubkey
+        owner_pubkey = Pubkey.from_string(owner) if owner else self._keypair.pubkey()
+
+        resp = self._client.get_token_accounts_by_owner_json_parsed(
+            owner_pubkey,
+            {"programId": _TOKEN_PROGRAM_ID},  # type: ignore[arg-type]
+        )
+        accounts = []
+        for item in resp.value:
+            raw_parsed = item.account.data.parsed
+            parsed: dict[str, Any] = raw_parsed
+            info: dict[str, Any] = parsed["info"]
+            token_amount: dict[str, Any] = info["tokenAmount"]
+            accounts.append({
+                "address": str(item.pubkey),
+                "mint": info["mint"],
+                "owner": info["owner"],
+                "amount": token_amount["uiAmountString"],
+                "decimals": token_amount["decimals"],
+            })
+        return accounts
+
+    def _get_spl_balance(self, mint: str, owner: str | None = None) -> dict[str, Any]:
+        """Return SPL token balance for a specific mint."""
+        accounts = self._get_token_accounts(owner)
+        for acc in accounts:
+            if acc["mint"] == mint:
+                return acc
+        owner_addr = owner or self.pubkey
+        return {"mint": mint, "owner": owner_addr, "amount": "0", "decimals": 0}
+
+    # ------------------------------------------------------------------
+    # Transaction and account lookup
+    # ------------------------------------------------------------------
 
     def _get_transaction(self, signature: str) -> dict[str, Any]:
         from solders.signature import Signature
@@ -196,13 +222,11 @@ class SolanaWallet:
 
         @tool(description="Send SOL to a recipient wallet address.")
         def send_sol(recipient: str, amount_sol: float) -> str:
-            """Send SOL from this agent's wallet to a recipient."""
             sig = wallet._send_sol(recipient, amount_sol)
             return f"Sent {amount_sol} SOL to {recipient}. Signature: {sig}"
 
         @tool(description="Look up a Solana transaction by its signature.")
         def get_transaction(signature: str) -> str:
-            """Fetch transaction details and status."""
             result = wallet._get_transaction(signature)
             return json.dumps(result, indent=2)
 
@@ -217,9 +241,20 @@ class SolanaWallet:
 
         @tool(description="Request a devnet SOL airdrop for testing. Devnet only.")
         def request_airdrop(amount_sol: float) -> str:
-            """Request free SOL on devnet for testing purposes."""
             sig = wallet._request_airdrop(amount_sol)
             return f"Airdrop of {amount_sol} SOL requested. Signature: {sig}"
+
+        @tool(description="List all SPL token accounts held by a wallet address.")
+        def get_token_accounts(address: str = "") -> str:
+            accounts = wallet._get_token_accounts(address or None)
+            if not accounts:
+                return "No SPL token accounts found."
+            return json.dumps(accounts, indent=2)
+
+        @tool(description="Get SPL token balance for a specific mint address.")
+        def get_spl_balance(mint: str, address: str = "") -> str:
+            result = wallet._get_spl_balance(mint, address or None)
+            return json.dumps(result, indent=2)
 
         registry = ToolRegistry()
         registry.register_all(
@@ -229,6 +264,8 @@ class SolanaWallet:
             get_account_info,
             get_wallet_address,
             request_airdrop,
+            get_token_accounts,
+            get_spl_balance,
         )
         return registry
 
