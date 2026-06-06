@@ -134,7 +134,3 @@ mypy solarium
 ```
 
 ---
-
-## License
-
-MIT
