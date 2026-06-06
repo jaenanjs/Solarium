@@ -26,6 +26,10 @@ dependencies = [
 openai = [
     "openai>=1.30.0",
 ]
+solana = [
+    "solana>=0.35.0",
+    "solders>=0.21.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -33,6 +37,8 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "openai>=1.30.0",
+    "solana>=0.35.0",
+    "solders>=0.21.0",
 ]
 
 [project.urls]
@@ -59,3 +65,7 @@ ignore = ["S307", "S102"]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "solarium.solana_tools"
+disallow_untyped_decorators = false
