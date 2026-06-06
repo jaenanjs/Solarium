@@ -1,6 +1,7 @@
 """Solarium — a multi-agent framework for building networks of AI agents."""
 
 from solarium.agent import Agent
+from solarium.blackboard import Blackboard
 from solarium.memory import Memory
 from solarium.message import Handoff, Message, MessageRole
 from solarium.network import Network, Topology
@@ -22,4 +23,5 @@ __all__ = [
     "Topology",
     "AnthropicProvider",
     "OpenAIProvider",
+    "Blackboard",
 ]

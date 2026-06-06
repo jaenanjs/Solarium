@@ -7,28 +7,43 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from solarium.agent import Agent
+    from solarium.blackboard import Blackboard
 
 
 class Topology(StrEnum):
-    STAR = "star"        # one hub agent routes to specialists
+    STAR = "star"          # one hub agent routes to specialists
     PIPELINE = "pipeline"  # agents run in sequence, output → next input
-    MESH = "mesh"        # any agent can hand off to any other
+    MESH = "mesh"          # any agent can hand off to any other
 
 
 class Network:
     """A named collection of agents with a declared topology.
 
-    The network wires peer lists based on topology so agents can issue handoffs
-    without manually specifying every connection.
+    Optionally attach a ``Blackboard`` to give all agents shared memory.
+
+    Args:
+        name: Label for this network.
+        topology: How agents are wired for handoffs.
+        blackboard: Optional shared knowledge store. When provided, every agent
+                    added to this network gets ``blackboard_read`` and
+                    ``blackboard_write`` tools injected automatically.
     """
 
-    def __init__(self, name: str = "solarium-network", topology: Topology = Topology.STAR) -> None:
+    def __init__(
+        self,
+        name: str = "solarium-network",
+        topology: Topology = Topology.STAR,
+        blackboard: Blackboard | None = None,
+    ) -> None:
         self.name = name
         self.topology = topology
+        self.blackboard = blackboard
         self._agents: dict[str, Agent] = {}
 
     def add(self, agent: Agent) -> Network:
         self._agents[agent.name] = agent
+        if self.blackboard is not None:
+            agent._blackboard_specs = self.blackboard.make_tools(agent.name)
         self._rewire()
         return self
 
@@ -51,8 +66,6 @@ class Network:
             for agent in self._agents.values():
                 agent.peers = [n for n in names if n != agent.name]
         elif self.topology == Topology.STAR:
-            # First agent added becomes the hub; it can reach all others.
-            # Spoke agents can only reach the hub.
             if not names:
                 return
             hub = names[0]
@@ -66,4 +79,5 @@ class Network:
 
     def __repr__(self) -> str:
         agents = list(self._agents)
-        return f"Network({self.name!r}, topology={self.topology.value}, agents={agents})"
+        board = f", blackboard={self.blackboard!r}" if self.blackboard else ""
+        return f"Network({self.name!r}, topology={self.topology.value}, agents={agents}{board})"

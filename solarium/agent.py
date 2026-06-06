@@ -96,6 +96,8 @@ class Agent:
         self._provider = (
             provider if provider is not None else _make_default_provider(model, api_key)
         )
+        # Injected by Network when a Blackboard is attached
+        self._blackboard_specs: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Public interface
@@ -158,15 +160,28 @@ class Agent:
 
     def _tool_specs(self) -> list[dict[str, Any]]:
         specs = self.tools.specs()
+        # Strip internal _handler key before sending to the API
+        board_specs = [
+            {k: v for k, v in s.items() if k != "_handler"}
+            for s in self._blackboard_specs
+        ]
         if self.peers:
-            specs = [_HANDOFF_TOOL_SPEC] + specs
+            specs = [_HANDOFF_TOOL_SPEC] + board_specs + specs
+        else:
+            specs = board_specs + specs
         return specs
 
     def _execute_tools(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
+        # Build a lookup for blackboard handlers keyed by tool name
+        board_handlers = {s["name"]: s["_handler"] for s in self._blackboard_specs}
+
         results: list[ToolResult] = []
         for tc in tool_calls:
             try:
-                raw = self.tools.call(tc.name, tc.input)
+                if tc.name in board_handlers:
+                    raw = board_handlers[tc.name](**tc.input)
+                else:
+                    raw = self.tools.call(tc.name, tc.input)
                 content = json.dumps(raw) if not isinstance(raw, str) else raw
                 results.append(ToolResult(id=tc.id, content=content))
             except Exception as exc:
