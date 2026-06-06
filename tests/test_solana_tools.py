@@ -43,11 +43,11 @@ def test_repr_shows_network():
 def test_make_tools_returns_registry():
     wallet = SolanaWallet.generate()
     registry = wallet.make_tools()
-    assert len(registry) == 8
+    assert len(registry) == 11
     expected = {
-        "get_sol_balance", "send_sol", "get_transaction",
+        "get_sol_balance", "send_sol", "send_spl_token", "get_transaction",
         "get_account_info", "get_wallet_address", "request_airdrop",
-        "get_token_accounts", "get_spl_balance",
+        "get_token_accounts", "get_spl_balance", "get_swap_quote", "execute_swap",
     }
     assert {s["name"] for s in registry.specs()} == expected
 
@@ -112,6 +112,48 @@ def test_get_spl_balance_tool():
     parsed = json.loads(result)
     assert parsed["amount"] == "50.0"
     assert parsed["mint"] == "USDCMint"
+
+
+def test_send_spl_token_tool():
+    wallet = SolanaWallet.generate()
+    wallet._send_spl_token = MagicMock(return_value="SplTransferSig456")
+    registry = wallet.make_tools()
+    system_program = "So11111111111111111111111111111111111111112"
+    result = registry.call("send_spl_token", {
+        "mint": "USDCMintAddress",
+        "recipient": system_program,
+        "amount": 10.0,
+    })
+    assert "SplTransferSig456" in result
+    assert "10.0" in result
+
+
+def test_get_swap_quote_tool():
+    wallet = SolanaWallet.generate()
+    usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    sol = "So11111111111111111111111111111111111111112"
+    wallet._jupiter_quote = MagicMock(
+        return_value={"outAmount": "1500000000", "priceImpactPct": "0.01"}
+    )
+    wallet._get_token_decimals = MagicMock(return_value=9)
+    registry = wallet.make_tools()
+    result = registry.call("get_swap_quote", {
+        "input_mint": usdc, "output_mint": sol, "amount": 100.0, "slippage_bps": 50,
+    })
+    assert "1.5" in result
+    assert "0.01" in result
+
+
+def test_execute_swap_tool():
+    wallet = SolanaWallet.generate()
+    usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    sol = "So11111111111111111111111111111111111111112"
+    wallet._jupiter_swap = MagicMock(return_value="SwapSig789")
+    registry = wallet.make_tools()
+    result = registry.call("execute_swap", {
+        "input_mint": usdc, "output_mint": sol, "amount": 50.0, "slippage_bps": 50,
+    })
+    assert "SwapSig789" in result
 
 
 def test_get_transaction_tool_formats_json():
