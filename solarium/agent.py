@@ -1,4 +1,4 @@
-"""Core Agent class — wraps a Claude model with tools, memory, and identity."""
+"""Core Agent class — wraps a provider with tools, memory, and identity."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-import anthropic
-
 from solarium.memory import Memory
-from solarium.message import Handoff, Message, MessageRole
+from solarium.message import Handoff
+from solarium.providers.base import BaseProvider, ToolCall, ToolResult
 from solarium.tools import ToolRegistry
 
 _HANDOFF_TOOL_SPEC = {
@@ -29,18 +28,47 @@ _HANDOFF_TOOL_SPEC = {
 }
 
 
+def _make_default_provider(model: str, api_key: str | None) -> BaseProvider:
+    from solarium.providers.anthropic_provider import AnthropicProvider
+    p = AnthropicProvider(api_key=api_key)
+    p._model = model  # type: ignore[attr-defined]
+    return p
+
+
 class Agent:
-    """An autonomous agent backed by a Claude model.
+    """An autonomous agent backed by a configurable LLM provider.
 
     Args:
-        name: Unique identifier for this agent within a network.
-        role: One-line description of what this agent does.
-        system: Full system prompt. Defaults to a prompt derived from `role`.
-        model: Claude model ID. Defaults to claude-opus-4-8.
-        tools: ToolRegistry containing callable tools.
-        peers: List of peer agent names this agent can hand off to.
-        max_iterations: Max tool-call loops per run. Guards against infinite loops.
-        memory_size: Max messages kept in short-term memory.
+        name: Unique identifier within a network.
+        role: One-line description used to auto-generate a system prompt.
+        system: Full system prompt — overrides `role` if provided.
+        model: Model ID string passed to the provider.
+        provider: A ``BaseProvider`` instance. Defaults to Anthropic (claude-opus-4-8).
+                  Pass an ``OpenAIProvider`` to use GPT-4o or any compatible endpoint.
+        api_key: API key for the default Anthropic provider. Reads from env if omitted.
+        tools: A ``ToolRegistry`` of callable tools.
+        peers: Agent names this agent can hand off to.
+        max_iterations: Max tool-call loops per turn.
+        memory_size: Max messages in rolling history.
+
+    Examples::
+
+        # Anthropic (default)
+        agent = Agent(name="bot", model="claude-opus-4-8")
+
+        # OpenAI
+        from solarium.providers import OpenAIProvider
+        agent = Agent(name="bot", model="gpt-4o", provider=OpenAIProvider())
+
+        # Groq (OpenAI-compatible)
+        agent = Agent(
+            name="bot",
+            model="llama-3.1-70b-versatile",
+            provider=OpenAIProvider(
+                api_key="gsk_...",
+                base_url="https://api.groq.com/openai/v1",
+            ),
+        )
     """
 
     def __init__(
@@ -49,6 +77,8 @@ class Agent:
         role: str = "general assistant",
         system: str | None = None,
         model: str = "claude-opus-4-8",
+        provider: BaseProvider | None = None,
+        api_key: str | None = None,
         tools: ToolRegistry | None = None,
         peers: list[str] | None = None,
         max_iterations: int = 20,
@@ -63,157 +93,94 @@ class Agent:
         self.memory = Memory(max_messages=memory_size)
 
         self._system = system or f"You are {name}, a {role}. Be concise and accurate."
-        self._client = anthropic.Anthropic()
+        self._provider = (
+            provider if provider is not None else _make_default_provider(model, api_key)
+        )
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     def run(self, user_input: str) -> str:
-        """Run a turn synchronously. Returns the final text response."""
         import asyncio
         return asyncio.run(self.arun(user_input))
 
     async def arun(self, user_input: str) -> str:
-        """Run a turn asynchronously. Returns the final text response."""
-        self.memory.add(Message.user(user_input, sender="user"))
+        self.memory.add_internal({"role": "user", "content": user_input})
 
         for _ in range(self.max_iterations):
-            response = await self._call_api()
-            stop_reason = response.stop_reason
+            response = await self._provider.complete(
+                system=self._system,
+                history=self.memory.internal_messages(),
+                tools=self._tool_specs(),
+            )
 
-            if stop_reason == "end_turn":
-                text = self._extract_text(response)
-                self.memory.add(Message.assistant(text, sender=self.name))
-                return text
+            if response.stop_reason == "end_turn":
+                self.memory.add_internal({"role": "assistant", "content": response.text})
+                return response.text
 
-            if stop_reason == "tool_use":
-                tool_results = await self._handle_tool_use(response)
-                if isinstance(tool_results, Handoff):
-                    raise HandoffSignal(tool_results)
-                # tool results are appended to memory inside _handle_tool_use
+            if response.stop_reason == "tool_use":
+                for tc in response.tool_calls:
+                    if tc.name == "_solarium_handoff":
+                        raise HandoffSignal(Handoff(
+                            target_agent=str(tc.input["target_agent"]),
+                            message=str(tc.input["message"]),
+                        ))
+
+                self.memory.add_internal({
+                    "role": "assistant",
+                    "content": response.text,
+                    "tool_calls": response.tool_calls,
+                })
+                results = self._execute_tools(response.tool_calls)
+                self.memory.add_internal({"role": "tool_results", "results": results})
                 continue
 
-            # unexpected stop reason
             break
 
-        text = self._extract_text(response)
-        self.memory.add(Message.assistant(text, sender=self.name))
-        return text
+        self.memory.add_internal({"role": "assistant", "content": response.text})
+        return response.text
 
     async def astream(self, user_input: str) -> AsyncIterator[str]:
-        """Stream text tokens from a single turn (no tool use in streaming mode)."""
-        self.memory.add(Message.user(user_input, sender="user"))
-        full_text = ""
-
-        # stream() returns a sync context manager; use run_in_executor to collect tokens
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-
-        def _stream_sync() -> str:
-            with self._client.messages.stream(
-                model=self.model,
-                max_tokens=8192,
-                system=self._system,
-                messages=self.memory.api_messages()[:-1],
-                thinking={"type": "adaptive"},
-            ) as stream:
-                return stream.get_final_message().content[0].text  # type: ignore[union-attr]
-
-        text = await loop.run_in_executor(None, _stream_sync)
-        full_text = text
-        yield text
-
-        self.memory.add(Message.assistant(full_text, sender=self.name))
+        """Stream a single-turn response (no tool use)."""
+        self.memory.add_internal({"role": "user", "content": user_input})
+        response = await self._provider.complete(
+            system=self._system,
+            history=self.memory.internal_messages(),
+            tools=[],
+        )
+        self.memory.add_internal({"role": "assistant", "content": response.text})
+        yield response.text
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _call_api(self) -> anthropic.types.Message:
-        tool_specs = self.tools.specs()
+    def _tool_specs(self) -> list[dict[str, Any]]:
+        specs = self.tools.specs()
         if self.peers:
-            tool_specs = [_HANDOFF_TOOL_SPEC] + tool_specs
+            specs = [_HANDOFF_TOOL_SPEC] + specs
+        return specs
 
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": 8192,
-            "system": self._system,
-            "messages": self.memory.api_messages(),
-            "thinking": {"type": "adaptive"},
-        }
-        if tool_specs:
-            kwargs["tools"] = tool_specs
-
-        import asyncio
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None,
-            lambda: self._client.messages.create(**kwargs),
-        )
-
-    async def _handle_tool_use(
-        self, response: anthropic.types.Message
-    ) -> list[dict[str, Any]] | Handoff:
-        # Append the assistant's tool-use turn to history
-        self.memory._history.append(
-            Message(
-                role=MessageRole.ASSISTANT,
-                content=json.dumps([b.model_dump() for b in response.content]),
-                sender=self.name,
-                metadata={"raw_blocks": response.content},
-            )
-        )
-
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-
-            if block.name == "_solarium_handoff":
-                return Handoff(
-                    target_agent=str(block.input["target_agent"]),
-                    message=str(block.input["message"]),
-                )
-
+    def _execute_tools(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
+        results: list[ToolResult] = []
+        for tc in tool_calls:
             try:
-                result = self.tools.call(block.name, block.input)
-                result_str = json.dumps(result) if not isinstance(result, str) else result
-                is_error = False
+                raw = self.tools.call(tc.name, tc.input)
+                content = json.dumps(raw) if not isinstance(raw, str) else raw
+                results.append(ToolResult(id=tc.id, content=content))
             except Exception as exc:
-                result_str = f"Error: {exc}"
-                is_error = True
-
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": block.id,
-                "content": result_str,
-                "is_error": is_error,
-            })
-
-        # Append tool results as a user turn
-        self.memory._history.append(
-            Message(
-                role=MessageRole.USER,
-                content=json.dumps(tool_results),
-                sender="tool",
-                metadata={"raw_tool_results": tool_results},
-            )
-        )
-        return tool_results
-
-    @staticmethod
-    def _extract_text(response: anthropic.types.Message) -> str:
-        parts = [b.text for b in response.content if hasattr(b, "text")]
-        return "\n".join(parts)
+                results.append(ToolResult(id=tc.id, content=f"Error: {exc}", is_error=True))
+        return results
 
     def __repr__(self) -> str:
-        return f"Agent(name={self.name!r}, model={self.model!r}, tools={len(self.tools)})"
+        return (
+            f"Agent(name={self.name!r}, model={self.model!r}, "
+            f"provider={type(self._provider).__name__})"
+        )
 
 
 class HandoffSignal(Exception):
-    """Internal signal raised when an agent issues a handoff."""
     def __init__(self, handoff: Handoff) -> None:
         self.handoff = handoff
         super().__init__(f"Handoff → {handoff.target_agent}")

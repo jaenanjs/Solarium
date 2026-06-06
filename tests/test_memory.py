@@ -1,31 +1,31 @@
 """Tests for Memory."""
 
 from solarium.memory import Memory
-from solarium.message import Message
 
 
 def test_add_and_retrieve():
     mem = Memory()
-    mem.add(Message.user("hello"))
-    mem.add(Message.assistant("hi there"))
-    assert len(mem.messages()) == 2
+    mem.add_internal({"role": "user", "content": "hello"})
+    mem.add_internal({"role": "assistant", "content": "hi there"})
+    assert len(mem.internal_messages()) == 2
 
 
-def test_api_messages_format():
+def test_internal_messages_format():
     mem = Memory()
-    mem.add(Message.user("ping"))
-    mem.add(Message.assistant("pong"))
-    api = mem.api_messages()
-    assert api == [{"role": "user", "content": "ping"}, {"role": "assistant", "content": "pong"}]
+    mem.add_internal({"role": "user", "content": "ping"})
+    mem.add_internal({"role": "assistant", "content": "pong"})
+    msgs = mem.internal_messages()
+    assert msgs[0] == {"role": "user", "content": "ping"}
+    assert msgs[1] == {"role": "assistant", "content": "pong"}
 
 
 def test_max_messages_rolling():
     mem = Memory(max_messages=3)
     for i in range(5):
-        mem.add(Message.user(str(i)))
-    msgs = mem.messages()
+        mem.add_internal({"role": "user", "content": str(i)})
+    msgs = mem.internal_messages()
     assert len(msgs) == 3
-    assert msgs[-1].content == "4"
+    assert msgs[-1]["content"] == "4"
 
 
 def test_kv_store():
@@ -38,6 +38,6 @@ def test_kv_store():
 
 def test_clear_history():
     mem = Memory()
-    mem.add(Message.user("x"))
+    mem.add_internal({"role": "user", "content": "x"})
     mem.clear_history()
-    assert mem.messages() == []
+    assert mem.internal_messages() == []

@@ -7,8 +7,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from anthropic.types import MessageParam
-
 
 class MessageRole(StrEnum):
     USER = "user"
@@ -24,9 +22,6 @@ class Message:
     recipient: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-    def to_api(self) -> MessageParam:
-        return {"role": self.role.value, "content": self.content}
 
     @classmethod
     def user(cls, content: str, sender: str | None = None, **meta: Any) -> Message:
