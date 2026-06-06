@@ -1,17 +1,17 @@
 """Example 3 — pipeline topology: each agent refines the previous output."""
 
-import axon
-from axon.network import Topology
+import solarium
+from solarium.network import Topology
 
-network = axon.Network(topology=Topology.PIPELINE)
+network = solarium.Network(topology=Topology.PIPELINE)
 
-drafter = axon.Agent(
+drafter = solarium.Agent(
     name="drafter",
     role="first-draft writer",
     system="You write concise first drafts. Given a topic, produce a 3-sentence paragraph.",
 )
 
-editor = axon.Agent(
+editor = solarium.Agent(
     name="editor",
     role="copy editor",
     system=(
@@ -20,7 +20,7 @@ editor = axon.Agent(
     ),
 )
 
-critic = axon.Agent(
+critic = solarium.Agent(
     name="critic",
     role="quality reviewer",
     system=(
@@ -30,7 +30,7 @@ critic = axon.Agent(
 )
 
 network.add(drafter).add(editor).add(critic)
-orchestrator = axon.Orchestrator(network)
+orchestrator = solarium.Orchestrator(network)
 
 if __name__ == "__main__":
     import asyncio

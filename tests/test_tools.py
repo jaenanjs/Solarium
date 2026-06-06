@@ -1,7 +1,8 @@
 """Tests for ToolRegistry and @tool decorator."""
 
 import pytest
-from axon.tools import tool, ToolRegistry
+
+from solarium.tools import ToolRegistry, tool
 
 
 @tool
@@ -16,7 +17,7 @@ def greet_fn(name: str) -> str:
 
 
 def test_tool_spec_generated():
-    spec = add._axon_tool_spec
+    spec = add._solarium_tool_spec
     assert spec["name"] == "add"
     assert spec["description"] == "Add two integers."
     assert "x" in spec["input_schema"]["properties"]
@@ -25,8 +26,8 @@ def test_tool_spec_generated():
 
 
 def test_tool_custom_name():
-    assert greet_fn._axon_tool_spec["name"] == "greet"
-    assert greet_fn._axon_tool_spec["description"] == "Return a greeting."
+    assert greet_fn._solarium_tool_spec["name"] == "greet"
+    assert greet_fn._solarium_tool_spec["description"] == "Return a greeting."
 
 
 def test_registry_register_and_call():

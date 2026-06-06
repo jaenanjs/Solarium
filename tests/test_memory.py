@@ -1,7 +1,7 @@
 """Tests for Memory."""
 
-from axon.memory import Memory
-from axon.message import Message
+from solarium.memory import Memory
+from solarium.message import Message
 
 
 def test_add_and_retrieve():

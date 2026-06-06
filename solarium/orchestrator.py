@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
-from axon.agent import Agent, HandoffSignal
-from axon.message import Handoff
-from axon.network import Network
+from solarium.agent import HandoffSignal
+from solarium.message import Handoff
+from solarium.network import Network
 
 
 class Orchestrator:

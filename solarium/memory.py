@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-from axon.message import Message, MessageRole
+from anthropic.types import MessageParam
+
+from solarium.message import Message, MessageRole
 
 
 class Memory:
@@ -21,9 +23,9 @@ class Memory:
     def messages(self) -> list[Message]:
         return list(self._history)
 
-    def api_messages(self) -> list[dict[str, str]]:
+    def api_messages(self) -> list[MessageParam]:
         """Return history in the format expected by the Claude Messages API."""
-        out: list[dict[str, str]] = []
+        out: list[MessageParam] = []
         for msg in self._history:
             if msg.role in (MessageRole.USER, MessageRole.ASSISTANT):
                 out.append(msg.to_api())

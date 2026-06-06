@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import anthropic
 
-from axon.memory import Memory
-from axon.message import Handoff, Message, MessageRole
-from axon.tools import ToolRegistry
+from solarium.memory import Memory
+from solarium.message import Handoff, Message, MessageRole
+from solarium.tools import ToolRegistry
 
 _HANDOFF_TOOL_SPEC = {
-    "name": "_axon_handoff",
+    "name": "_solarium_handoff",
     "description": (
         "Hand off control to another agent. Use this when the task requires "
         "a different specialist. Provide the target agent's name and a clear message."
@@ -105,16 +106,24 @@ class Agent:
         self.memory.add(Message.user(user_input, sender="user"))
         full_text = ""
 
-        async with self._client.messages.stream(
-            model=self.model,
-            max_tokens=8192,
-            system=self._system,
-            messages=self.memory.api_messages()[:-1],  # exclude the just-added user msg
-            thinking={"type": "adaptive"},
-        ) as stream:
-            async for text in stream.text_stream:
-                full_text += text
-                yield text
+        # stream() returns a sync context manager; use run_in_executor to collect tokens
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+
+        def _stream_sync() -> str:
+            with self._client.messages.stream(
+                model=self.model,
+                max_tokens=8192,
+                system=self._system,
+                messages=self.memory.api_messages()[:-1],
+                thinking={"type": "adaptive"},
+            ) as stream:
+                return stream.get_final_message().content[0].text  # type: ignore[union-attr]
+
+        text = await loop.run_in_executor(None, _stream_sync)
+        full_text = text
+        yield text
 
         self.memory.add(Message.assistant(full_text, sender=self.name))
 
@@ -146,9 +155,8 @@ class Agent:
 
     async def _handle_tool_use(
         self, response: anthropic.types.Message
-    ) -> list[dict] | Handoff:
+    ) -> list[dict[str, Any]] | Handoff:
         # Append the assistant's tool-use turn to history
-        assistant_turn = {"role": "assistant", "content": response.content}
         self.memory._history.append(
             Message(
                 role=MessageRole.ASSISTANT,
@@ -163,10 +171,10 @@ class Agent:
             if block.type != "tool_use":
                 continue
 
-            if block.name == "_axon_handoff":
+            if block.name == "_solarium_handoff":
                 return Handoff(
-                    target_agent=block.input["target_agent"],
-                    message=block.input["message"],
+                    target_agent=str(block.input["target_agent"]),
+                    message=str(block.input["message"]),
                 )
 
             try:

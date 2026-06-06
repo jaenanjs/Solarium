@@ -1,8 +1,8 @@
-# Axon
+# Solarium
 
 **A multi-agent framework built on the Anthropic Claude API.**
 
-Axon models agents as neurons and messages as the signals that travel between them — giving you a clean, composable system for building networks of AI agents that collaborate, hand off tasks, and remember context.
+Solarium models agents as neurons and messages as the signals that travel between them — giving you a clean, composable system for building networks of AI agents that collaborate, hand off tasks, and remember context.
 
 ---
 
@@ -21,60 +21,60 @@ Axon models agents as neurons and messages as the signals that travel between th
 ## Quickstart
 
 ```bash
-pip install axon
+pip install solarium
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ### Single agent with a tool
 
 ```python
-import axon
+import solarium
 
-@axon.tool
+@solarium.tool
 def calculator(expression: str) -> str:
     """Evaluate an arithmetic expression."""
     return str(eval(expression))
 
-registry = axon.ToolRegistry()
+registry = solarium.ToolRegistry()
 registry.register(calculator)
 
-agent = axon.Agent(name="math", role="arithmetic assistant", tools=registry)
+agent = solarium.Agent(name="math", role="arithmetic assistant", tools=registry)
 print(agent.run("What is 12 * (3 + 7)?"))
 ```
 
 ### Multi-agent with handoffs (star topology)
 
 ```python
-import axon
-from axon.network import Topology
+import solarium
+from solarium.network import Topology
 
-network = axon.Network(topology=Topology.STAR)
+network = solarium.Network(topology=Topology.STAR)
 
-router = axon.Agent(
+router = solarium.Agent(
     name="router",
     role="task router",
-    system="Analyze the task and hand off to 'researcher' or 'coder'. Use _axon_handoff.",
+    system="Analyze the task and hand off to 'researcher' or 'coder'. Use _solarium_handoff.",
 )
-researcher = axon.Agent(name="researcher", role="research specialist")
-coder = axon.Agent(name="coder", role="Python coding specialist")
+researcher = solarium.Agent(name="researcher", role="research specialist")
+coder = solarium.Agent(name="coder", role="Python coding specialist")
 
 network.add(router).add(researcher).add(coder)
 
-orchestrator = axon.Orchestrator(network, entry="router")
+orchestrator = solarium.Orchestrator(network, entry="router")
 print(orchestrator.run("Write a Python function that reverses a string."))
 ```
 
 ### Pipeline
 
 ```python
-import axon
-from axon.network import Topology
+import solarium
+from solarium.network import Topology
 
-network = axon.Network(topology=Topology.PIPELINE)
-network.add(axon.Agent(name="drafter", role="first-draft writer"))
-network.add(axon.Agent(name="editor", role="copy editor"))
+network = solarium.Network(topology=Topology.PIPELINE)
+network.add(solarium.Agent(name="drafter", role="first-draft writer"))
+network.add(solarium.Agent(name="editor", role="copy editor"))
 
-orchestrator = axon.Orchestrator(network)
+orchestrator = solarium.Orchestrator(network)
 import asyncio
 transcript = asyncio.run(orchestrator.arun_pipeline("renewable energy"))
 for name, output in transcript:
@@ -84,9 +84,9 @@ for name, output in transcript:
 ### Streaming
 
 ```python
-import asyncio, axon
+import asyncio, solarium
 
-agent = axon.Agent(name="poet", role="creative writer")
+agent = solarium.Agent(name="poet", role="creative writer")
 
 async def main():
     async for token in agent.astream("Write a haiku about code."):
@@ -100,7 +100,7 @@ asyncio.run(main())
 ## Architecture
 
 ```
-axon/
+solarium/
 ├── agent.py        # Agent — Claude + tools + memory + handoff support
 ├── orchestrator.py # Orchestrator — drives multi-agent loops
 ├── network.py      # Network + Topology — wires agents together
@@ -114,10 +114,10 @@ axon/
 
 ## Models
 
-Axon defaults to `claude-opus-4-8` with adaptive thinking enabled. Override per-agent:
+Solarium defaults to `claude-opus-4-8` with adaptive thinking enabled. Override per-agent:
 
 ```python
-agent = axon.Agent(name="fast", model="claude-haiku-4-5")
+agent = solarium.Agent(name="fast", model="claude-haiku-4-5")
 ```
 
 ---
@@ -125,12 +125,12 @@ agent = axon.Agent(name="fast", model="claude-haiku-4-5")
 ## Development
 
 ```bash
-git clone https://github.com/jaenan/axon
-cd axon
+git clone https://github.com/jaenan/solarium
+cd solarium
 pip install -e ".[dev]"
 pytest
-ruff check axon tests
-mypy axon
+ruff check solarium tests
+mypy solarium
 ```
 
 ---

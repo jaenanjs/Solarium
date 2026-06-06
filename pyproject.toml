@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "axon"
+name = "solarium"
 version = "0.1.0"
 description = "A multi-agent framework built on the Anthropic Claude API"
 readme = "README.md"
@@ -32,12 +32,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jaenan/axon"
-Repository = "https://github.com/jaenan/axon"
-Issues = "https://github.com/jaenan/axon/issues"
+Homepage = "https://github.com/jaenan/solarium"
+Repository = "https://github.com/jaenan/solarium"
+Issues = "https://github.com/jaenan/solarium/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["axon"]
+packages = ["solarium"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,10 +1,10 @@
 """Example 4 — streaming tokens from a single agent."""
 
 import asyncio
-import axon
+import solarium
 
 
-agent = axon.Agent(
+agent = solarium.Agent(
     name="storyteller",
     role="creative short-story writer",
 )

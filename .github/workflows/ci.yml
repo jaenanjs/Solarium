@@ -27,13 +27,13 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check axon tests
+        run: ruff check solarium tests
 
       - name: Type check
-        run: mypy axon
+        run: mypy solarium
 
       - name: Run tests
-        run: pytest --cov=axon --cov-report=xml -v
+        run: pytest --cov=solarium --cov-report=xml -v
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

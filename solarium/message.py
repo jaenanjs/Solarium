@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
+from anthropic.types import MessageParam
 
-class MessageRole(str, Enum):
+
+class MessageRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -23,15 +25,15 @@ class Message:
     metadata: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-    def to_api(self) -> dict[str, str]:
+    def to_api(self) -> MessageParam:
         return {"role": self.role.value, "content": self.content}
 
     @classmethod
-    def user(cls, content: str, sender: str | None = None, **meta: Any) -> "Message":
+    def user(cls, content: str, sender: str | None = None, **meta: Any) -> Message:
         return cls(role=MessageRole.USER, content=content, sender=sender, metadata=meta)
 
     @classmethod
-    def assistant(cls, content: str, sender: str | None = None, **meta: Any) -> "Message":
+    def assistant(cls, content: str, sender: str | None = None, **meta: Any) -> Message:
         return cls(role=MessageRole.ASSISTANT, content=content, sender=sender, metadata=meta)
 
 

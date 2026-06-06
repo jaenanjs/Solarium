@@ -1,8 +1,10 @@
 """Tests for Network topology wiring."""
 
-import pytest
 from unittest.mock import MagicMock
-from axon.network import Network, Topology
+
+import pytest
+
+from solarium.network import Network, Topology
 
 
 def make_agent(name: str):

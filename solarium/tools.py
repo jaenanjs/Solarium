@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import inspect
-import json
-from typing import Any, Callable, get_type_hints
+from collections.abc import Callable
+from typing import Any, get_type_hints
+
+# Attributes stamped onto decorated functions
+_AXON_TOOL_ATTR = "_solarium_tool"
+_AXON_SPEC_ATTR = "_solarium_tool_spec"
 
 
-def _python_type_to_json(annotation: Any) -> dict:
+def _python_type_to_json(annotation: Any) -> dict[str, Any]:
     """Map Python type hints to JSON Schema types."""
     if annotation is inspect.Parameter.empty or annotation is type(None):
         return {"type": "string"}
     name = getattr(annotation, "__name__", str(annotation))
-    mapping = {
+    mapping: dict[str, dict[str, str]] = {
         "str": {"type": "string"},
         "int": {"type": "integer"},
         "float": {"type": "number"},
@@ -23,8 +27,13 @@ def _python_type_to_json(annotation: Any) -> dict:
     return mapping.get(name, {"type": "string"})
 
 
-def tool(func: Callable | None = None, *, name: str | None = None, description: str | None = None):
-    """Decorator that marks a function as an Axon tool.
+def tool(
+    func: Callable[..., Any] | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Any:
+    """Decorator that marks a function as an Solarium tool.
 
     Usage:
         @tool
@@ -33,7 +42,7 @@ def tool(func: Callable | None = None, *, name: str | None = None, description: 
         @tool(name="custom_name", description="Does X")
         def my_tool(x: str) -> str: ...
     """
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         tool_name = name or fn.__name__
         tool_desc = description or (fn.__doc__ or "").strip()
 
@@ -48,16 +57,12 @@ def tool(func: Callable | None = None, *, name: str | None = None, description: 
             if param.default is inspect.Parameter.empty:
                 required.append(param_name)
 
-        fn._axon_tool = True
-        fn._axon_tool_spec = {
+        object.__setattr__(fn, _AXON_TOOL_ATTR, True)
+        object.__setattr__(fn, _AXON_SPEC_ATTR, {
             "name": tool_name,
             "description": tool_desc,
-            "input_schema": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
-        }
+            "input_schema": {"type": "object", "properties": properties, "required": required},
+        })
         return fn
 
     if func is not None:
@@ -65,21 +70,29 @@ def tool(func: Callable | None = None, *, name: str | None = None, description: 
     return decorator
 
 
+def _get_spec(fn: Callable[..., Any]) -> dict[str, Any]:
+    spec: dict[str, Any] | None = getattr(fn, _AXON_SPEC_ATTR, None)
+    if spec is None:
+        raise ValueError(f"{fn.__name__} has no tool spec")
+    return spec
+
+
 class ToolRegistry:
     def __init__(self) -> None:
-        self._tools: dict[str, Callable] = {}
+        self._tools: dict[str, Callable[..., Any]] = {}
 
-    def register(self, fn: Callable) -> None:
-        if not getattr(fn, "_axon_tool", False):
+    def register(self, fn: Callable[..., Any]) -> None:
+        if not getattr(fn, _AXON_TOOL_ATTR, False):
             raise ValueError(f"{fn.__name__} must be decorated with @tool")
-        self._tools[fn._axon_tool_spec["name"]] = fn
+        spec = _get_spec(fn)
+        self._tools[spec["name"]] = fn
 
-    def register_all(self, *fns: Callable) -> None:
+    def register_all(self, *fns: Callable[..., Any]) -> None:
         for fn in fns:
             self.register(fn)
 
-    def specs(self) -> list[dict]:
-        return [fn._axon_tool_spec for fn in self._tools.values()]
+    def specs(self) -> list[dict[str, Any]]:
+        return [_get_spec(fn) for fn in self._tools.values()]
 
     def call(self, name: str, inputs: dict[str, Any]) -> Any:
         if name not in self._tools:

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from axon.agent import Agent
+    from solarium.agent import Agent
 
 
-class Topology(str, Enum):
+class Topology(StrEnum):
     STAR = "star"        # one hub agent routes to specialists
     PIPELINE = "pipeline"  # agents run in sequence, output → next input
     MESH = "mesh"        # any agent can hand off to any other
@@ -22,12 +22,12 @@ class Network:
     without manually specifying every connection.
     """
 
-    def __init__(self, name: str = "axon-network", topology: Topology = Topology.STAR) -> None:
+    def __init__(self, name: str = "solarium-network", topology: Topology = Topology.STAR) -> None:
         self.name = name
         self.topology = topology
-        self._agents: dict[str, "Agent"] = {}
+        self._agents: dict[str, Agent] = {}
 
-    def add(self, agent: "Agent") -> "Network":
+    def add(self, agent: Agent) -> Network:
         self._agents[agent.name] = agent
         self._rewire()
         return self
@@ -36,13 +36,13 @@ class Network:
         self._agents.pop(name, None)
         self._rewire()
 
-    def get(self, name: str) -> "Agent":
+    def get(self, name: str) -> Agent:
         try:
             return self._agents[name]
-        except KeyError:
-            raise KeyError(f"No agent named {name!r} in network {self.name!r}")
+        except KeyError as exc:
+            raise KeyError(f"No agent named {name!r} in network {self.name!r}") from exc
 
-    def agents(self) -> list["Agent"]:
+    def agents(self) -> list[Agent]:
         return list(self._agents.values())
 
     def _rewire(self) -> None:
@@ -65,4 +65,5 @@ class Network:
                 self._agents[name].peers = [names[i + 1]] if i + 1 < len(names) else []
 
     def __repr__(self) -> str:
-        return f"Network({self.name!r}, topology={self.topology.value}, agents={list(self._agents)})"
+        agents = list(self._agents)
+        return f"Network({self.name!r}, topology={self.topology.value}, agents={agents})"
